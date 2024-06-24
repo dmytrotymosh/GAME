@@ -5,27 +5,40 @@ using System.Diagnostics;
 using System.Reflection.Metadata;
 using System.ComponentModel;
 using System.Collections.Generic;
+using System.Runtime.Intrinsics.Arm;
+using GAME.Elements;
+using System.Diagnostics.Tracing;
+using GAME.Levels;
 
 namespace GAME
 {
-    internal class Field
+    public enum GameStatus
+    {
+        InProgress,
+        Over,
+        Winner,
+        Closed
+    }
+    public class Field
     {
         public int Height;
         public int Width;
         public BaseElement[,] GameField;
-        public Ball Ball = new Ball('B', 1, 1);
+        public Ball Ball = new Ball('B', 1, 1, ConsoleColor.White);
         public int EnegryBulletsAmount = 10;
         public int SpikesAmount = 5;
-        public bool IsOver = false;
-        public bool IsWinner = false;
-        public bool IsClosed = false;
+        public GameStatus Status { get; set; }
         private readonly object lockObject = new object();
-        public Player Player = new Player('P', 1, 1);
+        public Player Player = new Player('P', 1, 1, ConsoleColor.White);
+        public int HorizontalSpeed = 100;
+        public int VerticalSpeed = 200;
+        public List<(int, int)> Points = new List<(int, int)>();
 
         public Field(int height, int width)
         {
             Height = height;
             Width = width;
+            Status = GameStatus.InProgress;
         }
 
         public void CreateField(string level)
@@ -39,87 +52,55 @@ namespace GAME
                     {
                         if ((i == 0 && j == 0) || (i == Height - 1 && j == 0) || (i == 0 && j == Width - 1) || (i == Height - 1 && j == Width - 1))
                         {
-                            GameField[i, j] = new Wall('+', j, i);
+                            GameField[i, j] = new Wall('+', j, i, ConsoleColor.DarkGreen);
                         }
                         else if (i == 0 || i == Height - 1)
                         {
-                            GameField[i, j] = new Wall('-', j, i);
+                            GameField[i, j] = new Wall('-', j, i, ConsoleColor.DarkGreen);
                         }
                         else if (j == 0 || j == Width - 1)
                         {
-                            GameField[i, j] = new Wall('|', j, i);
+                            GameField[i, j] = new Wall('|', j, i, ConsoleColor.DarkGreen);
                         }
                     }
                     else if (level == "HARD" && j == (Width / 2))
                     {
-                        GameField[i, j] = new Wall('|', j, i);
-                    }
-                    else if (i == Player.PositionY && j == Player.PositionX)
-                    {
-                        GameField[i, j] = new Player('P', i, j);
-                    }
-                    else if (i == Ball.PositionY && j == Ball.PositionX)
-                    {
-                        GameField[i, j] = new Ball('B', i, j);
+                        GameField[i, j] = new Wall('|', j, i, ConsoleColor.DarkGreen);
                     }
                     else
                     {
-                        GameField[i, j] = new EmptyCell(' ', i, j);
+                        GameField[i, j] = new EmptyCell(' ', i, j, ConsoleColor.Black);
                     }
                 }
             }
         }
-
         public void AddEnergyBullets()
         {
             Random random = new Random();
             for (int i = 0; i < EnegryBulletsAmount; i++)
             {
-                int randomPositionY = random.Next(1, Height - 2);
-                int randomPositionX = random.Next(1, Width - 2);
-                if (GameField[randomPositionY, randomPositionX].GetType() == typeof(EmptyCell))
+                int x, y;
+                do
                 {
-                    GameField[randomPositionY, randomPositionX] = new EnergyBullet('@', randomPositionY, randomPositionX);
+                    y = random.Next(1, Height - 2);
+                    x = random.Next(1, Width - 2);
                 }
-                else
-                {
-                    while (true)
-                    {
-                        randomPositionY = random.Next(1, Height - 2);
-                        randomPositionX = random.Next(1, Width - 2);
-                        if (GameField[randomPositionY, randomPositionX].GetType() == typeof(EmptyCell))
-                        {
-                            GameField[randomPositionY, randomPositionX] = new EnergyBullet('@', randomPositionY, randomPositionX);
-                            break;
-                        }
-                    }
-                }
+                while (GameField[y, x].GetType() != typeof(EmptyCell));
+                Points.Add((y, x));
+                GameField[y, x] = new EnergyBullet('@', y, x, ConsoleColor.DarkYellow);
             }
         }
-
         public void AddSpikes()
         {
             Random random = new Random();
             for (int i = 0; i < SpikesAmount; i++)
             {
-                int randomPositionY = random.Next(1, Height - 2);
-                int randomPositionX = random.Next(1, Width - 2);
-                if (GameField[0, randomPositionX].GetType() == typeof(Wall))
-                {
-                    GameField[0, randomPositionX] = new Spike('#', 0, randomPositionX);
-                }
-                if (GameField[Height - 1, randomPositionX].GetType() == typeof(Wall))
-                {
-                    GameField[Height - 1, randomPositionX] = new Spike('#', Height - 1, randomPositionX);
-                }
-                if (GameField[randomPositionY, 0].GetType() == typeof(Wall))
-                {
-                    GameField[randomPositionY, 0] = new Spike('#', randomPositionY, 0);
-                }
-                if (GameField[randomPositionY, Width - 1].GetType() == typeof(Wall))
-                {
-                    GameField[randomPositionY, Width - 1] = new Spike('#', randomPositionY, Width - 1);
-                }
+                int y = random.Next(1, Height - 2);
+                int x = random.Next(1, Width - 2);
+                GameField[0, x] = new Spike('#', 0, x, ConsoleColor.DarkBlue);
+                GameField[Height - 1, x] = new Spike('#', Height - 1, x, ConsoleColor.DarkBlue);
+                GameField[y, 0] = new Spike('#', y, 0, ConsoleColor.DarkBlue);
+                GameField[y, Width - 1] = new Spike('#', y, Width - 1, ConsoleColor.DarkBlue);
             }
         }
         public void AddBoosters()
@@ -127,118 +108,28 @@ namespace GAME
             Random random = new Random();
             for (int i = 0; i < 2; i++)
             {
-                int randomPositionY = random.Next(1, Height - 2);
-                int randomPositionX = random.Next(1, Width - 2);
-                if (GameField[randomPositionY, randomPositionX].GetType() == typeof(EmptyCell))
+                int x, y;
+                do
                 {
-                    GameField[randomPositionY, randomPositionX] = new Booster('?', randomPositionY, randomPositionX);
+                    x = random.Next(1, Width - 2);
+                    y = random.Next(1, Height - 2);
                 }
-                else
-                {
-                    while (true)
-                    {
-                        randomPositionY = random.Next(1, Height - 2);
-                        randomPositionX = random.Next(1, Width - 2);
-                        if (GameField[randomPositionY, randomPositionX].GetType() == typeof(EmptyCell))
-                        {
-                            GameField[randomPositionY, randomPositionX] = new Booster('?', randomPositionY, randomPositionX);
-                            break;
-                        }
-                    }
-                }
+                while (GameField[y, x].GetType() != typeof(EmptyCell));
+                GameField[y, x] = new Booster('?', y, x, ConsoleColor.White, ConsoleColor.Magenta);
             }
         }
-        public void addTeleports()
+        public void AddTeleports()
         {
             Random random = new Random();
-            Teleport firstTeleport = null, secondTeleport = null;
-            int randomPositionY1 = random.Next(1, (Height / 2));
-            int randomPositionX1 = random.Next(1, (Width / 2));
-            if (GameField[randomPositionY1, randomPositionX1].GetType() == typeof(EmptyCell))
-            {
-                firstTeleport = new Teleport(':', randomPositionY1, randomPositionX1, 0, 0);
-            }
-            else
-            {
-                while (true)
-                {
-                    randomPositionY1 = random.Next(1, (Height / 2));
-                    randomPositionX1 = random.Next(1, (Width / 2));
-                    if (GameField[randomPositionY1, randomPositionX1].GetType() == typeof(EmptyCell))
-                    {
-                        GameField[randomPositionY1, randomPositionX1] = new Teleport(':', randomPositionY1, randomPositionX1, 0, 0);
-                        break;
-                    }
-                }
-            }
-            int randomPositionY2 = random.Next((Height / 2), Height - 2);
-            int randomPositionX2 = random.Next((Width / 2), Width - 2);
-            if (GameField[randomPositionY2, randomPositionX2].GetType() == typeof(EmptyCell))
-            {
-                secondTeleport = new Teleport(':', randomPositionY2, randomPositionX2, randomPositionY1, randomPositionX1);
-            }
-            else
-            {
-                while (true)
-                {
-                    randomPositionY2 = random.Next((Height / 2), Height - 2);
-                    randomPositionX2 = random.Next((Width / 2), Width - 2);
-                    if (GameField[randomPositionY2, randomPositionX2].GetType() == typeof(EmptyCell))
-                    {
-                        GameField[randomPositionY2, randomPositionX2] = new Teleport(':', randomPositionY2, randomPositionX2, randomPositionY1, randomPositionX1);
-                        break;
-                    }
-                }
-            }
-            firstTeleport.NextY = secondTeleport.PositionY;
-            firstTeleport.NextX = secondTeleport.PositionX;
-            GameField[randomPositionY1, randomPositionX1] = firstTeleport;
-            GameField[randomPositionY2, randomPositionX2] = secondTeleport;
+            int halfX = Width / 2, halfY = Height / 2;
+            Teleport fisrt = Teleport.CreateTeleport(1, halfX, 1, halfY, this);
+            Teleport second = Teleport.CreateTeleport(halfX, Width, halfY, Height, this);
+            fisrt.Connect(second);
         }
-        public void ColoredWrite(string text, string mode, string textColor, string backgroundColor = "black")
+        public void ColoredWrite(string text, string mode, ConsoleColor textColor, ConsoleColor backgroundColor)
         {
-            switch (textColor)
-            {
-                case "blue":
-                    Console.ForegroundColor = ConsoleColor.Blue;
-                    break;
-                case "darkblue":
-                    Console.ForegroundColor = ConsoleColor.DarkBlue;
-                    break;
-                case "darkred":
-                    Console.ForegroundColor = ConsoleColor.DarkRed;
-                    break;
-                case "green":
-                    Console.ForegroundColor = ConsoleColor.Green;
-                    break;
-                case "darkyellow":
-                    Console.ForegroundColor = ConsoleColor.DarkYellow;
-                    break;
-                case "magenta":
-                    Console.ForegroundColor = ConsoleColor.Magenta;
-                    break;
-                default:
-                    Console.ForegroundColor = ConsoleColor.White;
-                    break;
-            }
-            switch (backgroundColor)
-            {
-                case "magenta":
-                    Console.BackgroundColor = ConsoleColor.Magenta;
-                    break;
-                case "darkblue":
-                    Console.BackgroundColor = ConsoleColor.DarkBlue;
-                    break;
-                case "black":
-                    Console.BackgroundColor = ConsoleColor.Black;
-                    break;
-                case "white":
-                    Console.BackgroundColor = ConsoleColor.White;
-                    break;
-                case "darkred":
-                    Console.BackgroundColor = ConsoleColor.DarkRed;
-                    break;
-            }
+            Console.ForegroundColor = textColor;
+            Console.BackgroundColor = backgroundColor;
             switch (mode)
             {
                 case "inline":
@@ -260,586 +151,170 @@ namespace GAME
                 {
                     for (int j = 0; j < Width; j++)
                     {
-                        if (GameField[i, j].GetType() == typeof(EnergyBullet))
-                        {
-                            ColoredWrite(GameField[i, j].Skin.ToString(), "inline", "darkyellow");
-                        }
-                        else if (GameField[i, j].GetType() == typeof(Spike))
-                        {
-                            ColoredWrite(GameField[i, j].Skin.ToString(), "inline", "darkblue");
-                        }
-                        else if (GameField[i, j].GetType() == typeof(Wall))
-                        {
-                            ColoredWrite(GameField[i, j].Skin.ToString(), "inline", "green");
-                        }
-                        else if (GameField[i, j].GetType() == typeof(Booster))
-                        {
-                            ColoredWrite(GameField[i, j].Skin.ToString(), "inline", "white", "magenta");
-                        }
-                        else if (GameField[i, j].GetType() == typeof(Teleport))
-                        {
-                            ColoredWrite(GameField[i, j].Skin.ToString(), "inline", "green", "darkblue");
-                        }
-                        else
-                        {
-                            Console.Write(GameField[i, j].Skin);
-                        }
+                        ColoredWrite(GameField[i, j].Skin.ToString(), "inline", GameField[i, j].Color, GameField[i, j].BgColor);
                     }
                     Console.WriteLine();
                 }
             }
         }
-        public void CenteredColoredWrite(int lineWidth, string text, string mode, string textColor, string backgroundColor = "black")
+        public void CenteredColoredWrite(int lineWidth, string text, string mode, ConsoleColor textColor, ConsoleColor backgroundColor = ConsoleColor.Black)
         {
             ColoredWrite(new string(' ', (lineWidth - text.Length) / 2) + text, mode, textColor, backgroundColor);
         }
-
-        public void DeletePlayerFromField()
-        {
-            lock (lockObject)
-            {
-                if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(Player))
-                {
-                    GameField[Player.PositionY, Player.PositionX] = new EmptyCell(' ', Player.PositionY, Player.PositionX);
-                }
-            }
-        }
-
-        public void DeleteBallFromField()
-        {
-            lock (lockObject)
-            {
-                if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Ball))
-                {
-                    GameField[Ball.PositionY, Ball.PositionX] = new EmptyCell(' ', Ball.PositionY, Ball.PositionX);
-                }
-            }
-        }
-
         public void DeleteShieldFromField()
         {
             lock (lockObject)
             {
                 if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(Shield))
                 {
-                    GameField[Player.PositionY, Player.PositionX] = Player;
+                    GameField[Player.PositionY, Player.PositionX] = new EmptyCell(' ', Player.PositionY, Player.PositionX, ConsoleColor.Black);
                 }
             }
         }
-
-        public bool AddShiledToField(string type)
+        public bool AddShieldToField(string type)
         {
             lock (lockObject)
             {
-                if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(Player))
+                if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(EmptyCell))
                 {
-                    switch (type)
-                    {
-                        case "left":
-                            GameField[Player.PositionY, Player.PositionX] = new Shield('\\', Player.PositionY, Player.PositionX);
-                            break;
-                        case "right":
-                            GameField[Player.PositionY, Player.PositionX] = new Shield('/', Player.PositionY, Player.PositionX);
-                            break;
-                    }
+                    GameField[Player.PositionY, Player.PositionX] = new Shield(type, Player.PositionY, Player.PositionX);
                     return true;
                 }
                 return false;
             }
         }
-
-        public void UpdatePlayerOnField()
+        public void DeleteBallFromField()
         {
             lock (lockObject)
             {
-                GameField[Player.PositionY, Player.PositionX] = Player;
+                Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
+                if (Ball.PositionX == Player.PositionX && Ball.PositionY == Player.PositionY)
+                {
+                    ColoredWrite(Player.Skin.ToString(), "inline", Player.Color, Player.BgColor);
+
+                }
+                else
+                {
+                    ColoredWrite(GameField[Ball.PositionY, Ball.PositionX].Skin.ToString(), "inline", GameField[Ball.PositionY, Ball.PositionX].Color, GameField[Ball.PositionY, Ball.PositionX].BgColor);
+                }
             }
         }
-
         public void UpdateBallOnField()
         {
             lock (lockObject)
             {
-                if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(EnergyBullet))
-                {
-                    EnegryBulletsAmount -= 1;
-                }
-                if (EnegryBulletsAmount == 0)
-                {
-                    IsWinner = true;
-                    IsOver = true;
-                }
-                GameField[Ball.PositionY, Ball.PositionX] = Ball;
-            }
-        }
-
-        public void DirecterMovementOfBall()
-        {
-            lock (lockObject)
-            {
-                DeleteBallFromField();
                 Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Shield))
+                if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Wall) || GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Teleport))
                 {
-                    ColoredWrite(GameField[Ball.PositionY, Ball.PositionX].Skin.ToString(), "inline", "darkred");
-                }
-                else if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Booster))
-                {
-                    ColoredWrite(GameField[Ball.PositionY, Ball.PositionX].Skin.ToString(), "inline", "white", "magenta");
-                }
-                else if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Teleport))
-                {
-                    ColoredWrite(GameField[Ball.PositionY, Ball.PositionX].Skin.ToString(), "inline", "green", "darkblue");
+                    ColoredWrite(GameField[Ball.PositionY, Ball.PositionX].Skin.ToString(), "inline", GameField[Ball.PositionY, Ball.PositionX].Color, GameField[Ball.PositionY, Ball.PositionX].BgColor);
                 }
                 else
                 {
-                    Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                }
-                Ball.Move(Ball.Direction);
-                if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(EmptyCell) ||
-                    GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(EnergyBullet))
-                {
-                    UpdateBallOnField();
-                    Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                    Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                }
-                else
-                {
-                    Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
                     Console.Write(Ball.Skin);
                 }
             }
         }
-
-        public void DrawPlayer()
+        public void StartBallMovement()
         {
-            if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(EmptyCell))
+            while (Status != GameStatus.Over && Status != GameStatus.Winner)
             {
-                lock (lockObject)
+                DeleteBallFromField();
+                Ball.Move(Ball.Direction);
+                UpdateBallOnField();
+                if (Ball.Direction == MoveDirection.Left || Ball.Direction == MoveDirection.Right)
                 {
-                    UpdatePlayerOnField();
-                    Console.SetCursorPosition(Player.PositionX, Player.PositionY);
-                    Console.Write(GameField[Player.PositionY, Player.PositionX].Skin);
+                    Thread.Sleep(HorizontalSpeed);
                 }
+                else
+                {
+                    Thread.Sleep(VerticalSpeed);
+                }
+                GameField[Ball.PositionY, Ball.PositionX].BallInteraction(this, Ball);
             }
-            else
+            DeleteBallFromField();
+        }
+        public void DeletePlayerFromField()
+        {
+            lock (lockObject)
             {
-                lock (lockObject)
-                {
-                    Console.SetCursorPosition(Player.PositionX, Player.PositionY);
-                    Console.Write(Player.Skin);
-                }
+                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
             }
         }
-        public void StartMovementOfBall()
+        public void UpdatePlayerOnField()
         {
-            int HorizontalSpeed = 100;
-            int VerticalSpeed = 200;
-        Cycle:
-            for (; !IsOver || !IsWinner;)
+            lock (lockObject)
             {
-                if (Ball.Direction == "right")
-                {
-                    while (GameField[Ball.PositionY, Ball.PositionX + 1].GetType() != typeof(Wall))
-                    {
-                        if (IsOver)
-                        {
-                            break;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX + 1].GetType() == typeof(Spike))
-                        {
-                            IsOver = true;
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            break;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX + 1].GetType() == typeof(Teleport))
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            Teleport teleport = (Teleport)GameField[Ball.PositionY, Ball.PositionX + 1];
-                            Ball.PositionY = teleport.NextY;
-                            Ball.PositionX = teleport.NextX;
-                            continue;
-                        }
-                        DirecterMovementOfBall();
-                        if (IsWinner == true)
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            goto Cycle;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Booster))
-                        {
-                            int[] speedValues = new int[] { 25, 100 };
-                            Random random = new Random();
-                            int randomSpeed = random.Next(0, 2);
-                            HorizontalSpeed = speedValues[randomSpeed];
-                        }
-                        Thread.Sleep(HorizontalSpeed);
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Shield))
-                        {
-                            lock (lockObject)
-                            {
-                                DeleteBallFromField();
-                                Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                                Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            }
-                            if (GameField[Ball.PositionY, Ball.PositionX].Skin == '\\')
-                            {
-                                Ball.Direction = "down";
-                                goto Cycle;
-                            }
-                            else if (GameField[Ball.PositionY, Ball.PositionX].Skin == '/')
-                            {
-                                Ball.Direction = "up";
-                                goto Cycle;
-                            }
-                        }
-                    }
-                }
-                if (Ball.Direction == "left")
-                {
-                    while (GameField[Ball.PositionY, Ball.PositionX - 1].GetType() != typeof(Wall))
-                    {
-                        if (IsOver)
-                        {
-                            break;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX - 1].GetType() == typeof(Spike))
-                        {
-                            IsOver = true;
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            break;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX - 1].GetType() == typeof(Teleport))
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            Teleport teleport = (Teleport)GameField[Ball.PositionY, Ball.PositionX - 1];
-                            Ball.PositionY = teleport.NextY;
-                            Ball.PositionX = teleport.NextX;
-                            continue;
-                        }
-                        DirecterMovementOfBall();
-                        if (IsWinner == true)
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            goto Cycle;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Booster))
-                        {
-                            int[] speedValues = new int[] { 25, 100 };
-                            Random random = new Random();
-                            int randomSpeed = random.Next(0, 2);
-                            HorizontalSpeed = speedValues[randomSpeed];
-                        }
-                        Thread.Sleep(HorizontalSpeed);
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Shield))
-                        {
-                            lock (lockObject)
-                            {
-                                DeleteBallFromField();
-                                Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                                Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            }
-                            if (GameField[Ball.PositionY, Ball.PositionX].Skin == '\\')
-                            {
-                                Ball.Direction = "up";
-                                goto Cycle;
-                            }
-                            else if (GameField[Ball.PositionY, Ball.PositionX].Skin == '/')
-                            {
-                                Ball.Direction = "down";
-                                goto Cycle;
-                            }
-                        }
-                    }
-                }
-                if (Ball.Direction == "up")
-                {
-                    while (GameField[Ball.PositionY - 1, Ball.PositionX].GetType() != typeof(Wall))
-                    {
-                        if (IsOver)
-                        {
-                            break;
-                        }
-                        if (GameField[Ball.PositionY - 1, Ball.PositionX].GetType() == typeof(Spike))
-                        {
-                            IsOver = true;
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            break;
-                        }
-                        if (GameField[Ball.PositionY - 1, Ball.PositionX].GetType() == typeof(Teleport))
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            Teleport teleport = (Teleport)GameField[Ball.PositionY - 1, Ball.PositionX];
-                            Ball.PositionY = teleport.NextY;
-                            Ball.PositionX = teleport.NextX;
-                            continue;
-                        }
-                        DirecterMovementOfBall();
-                        if (IsWinner == true)
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            goto Cycle;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Booster))
-                        {
-                            int[] speedValues = new int[] { 50, 200 };
-                            Random random = new Random();
-                            int randomSpeed = random.Next(0, 2);
-                            VerticalSpeed = speedValues[randomSpeed];
-                        }
-                        Thread.Sleep(VerticalSpeed);
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Shield))
-                        {
-                            lock (lockObject)
-                            {
-                                DeleteBallFromField();
-                                Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                                Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            }
-                            if (GameField[Ball.PositionY, Ball.PositionX].Skin == '\\')
-                            {
-                                Ball.Direction = "left";
-                                goto Cycle;
-                            }
-                            else if (GameField[Ball.PositionY, Ball.PositionX].Skin == '/')
-                            {
-                                Ball.Direction = "right";
-                                goto Cycle;
-                            }
-                        }
-                    }
-                }
-                if (Ball.Direction == "down")
-                {
-                    while (GameField[Ball.PositionY + 1, Ball.PositionX].GetType() != typeof(Wall))
-                    {
-                        if (IsOver)
-                        {
-                            break;
-                        }
-                        if (GameField[Ball.PositionY + 1, Ball.PositionX].GetType() == typeof(Spike))
-                        {
-                            IsOver = true;
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            break;
-                        }
-                        if (GameField[Ball.PositionY + 1, Ball.PositionX].GetType() == typeof(Teleport))
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            Teleport teleport = (Teleport)GameField[Ball.PositionY + 1, Ball.PositionX];
-                            Ball.PositionY = teleport.NextY;
-                            Ball.PositionX = teleport.NextX;
-                            continue;
-                        }
-                        DirecterMovementOfBall();
-                        if (IsWinner == true)
-                        {
-                            DeleteBallFromField();
-                            Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                            Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            goto Cycle;
-                        }
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Booster))
-                        {
-                            int[] speedValues = new int[] { 50, 200 };
-                            Random random = new Random();
-                            int randomSpeed = random.Next(0, 2);
-                            VerticalSpeed = speedValues[randomSpeed];
-                        }
-                        Thread.Sleep(VerticalSpeed);
-                        if (GameField[Ball.PositionY, Ball.PositionX].GetType() == typeof(Shield))
-                        {
-                            lock (lockObject)
-                            {
-                                DeleteBallFromField();
-                                Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                                Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                            }
-                            if (GameField[Ball.PositionY, Ball.PositionX].Skin == '\\')
-                            {
-                                Ball.Direction = "right";
-                                goto Cycle;
-                            }
-                            else if (GameField[Ball.PositionY, Ball.PositionX].Skin == '/')
-                            {
-                                Ball.Direction = "left";
-                                goto Cycle;
-                            }
-                        }
-                    }
-                }
-                if (IsOver)
-                {
-                    DeleteBallFromField();
-                    Console.SetCursorPosition(Ball.PositionX, Ball.PositionY);
-                    Console.Write(GameField[Ball.PositionY, Ball.PositionX].Skin);
-                    break;
-                }
-                if (Ball.Direction == "right")
-                {
-                    Ball.Direction = "left";
-                }
-                else if (Ball.Direction == "left")
-                {
-                    Ball.Direction = "right";
-                }
-                else if (Ball.Direction == "up")
-                {
-                    Ball.Direction = "down";
-                }
-                else if (Ball.Direction == "down")
-                {
-                    Ball.Direction = "up";
-                }
-                continue;
-            }
-        }
-        public void PlayerColoredPrint()
-        {
-            DeletePlayerFromField();
-            Console.SetCursorPosition(Player.PositionX, Player.PositionY);
-            if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(EnergyBullet))
-            {
-                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", "darkyellow");
-            }
-            else if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(Shield))
-            {
-                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", "darkred");
-            }
-            else if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(Wall))
-            {
-                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", "green");
-            }
-            else if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(Booster))
-            {
-                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", "white", "magenta");
-            }
-            else if (GameField[Player.PositionY, Player.PositionX].GetType() == typeof(Teleport))
-            {
-                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", "green", "darkblue");
-            }
-            else
-            {
-                Console.Write(GameField[Player.PositionY, Player.PositionX].Skin);
+                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                Console.Write(Player.Skin);
             }
         }
         public void PlayerController()
         {
-            while (!IsOver || !IsWinner)
+            while (Status != GameStatus.Over && Status != GameStatus.Winner)
             {
-                if (IsOver)
+                if (Status == GameStatus.Over && Status == GameStatus.Winner)
                 {
                     break;
                 }
                 ConsoleKeyInfo playerDirection = Console.ReadKey(intercept: true);
-                switch (playerDirection.Key.ToString())
+                void MovePlayer(string direction, Func<bool> canMove)
+                {
+                    lock (lockObject)
                     {
-                        case "RightArrow":
-                        lock (lockObject)
+                        DeletePlayerFromField();
+                        if (canMove())
                         {
-                            PlayerColoredPrint();
-                            if (Player.PositionX < Width - 2)
-                            {
-                                Player.Move("right");
-                            }
-                            DrawPlayer();
-                        } 
-                            break;
-                        case "LeftArrow":
-                        lock (lockObject)
-                        {
-                            PlayerColoredPrint();
-                            if (Player.PositionX > 1)
-                            {
-                                Player.Move("left");
-                            }
-                            DrawPlayer();
+                            Player.Move(direction);
                         }
-                            break;
-                        case "UpArrow":
-                        lock (lockObject)
+                        UpdatePlayerOnField();
+                    }
+                }
+                switch (playerDirection.Key)
+                {
+                    case ConsoleKey.RightArrow:
+                        MovePlayer("right", () => Player.PositionX < Width - 2);
+                        break;
+                    case ConsoleKey.LeftArrow:
+                        MovePlayer("left", () => Player.PositionX > 1);
+                        break;
+                    case ConsoleKey.UpArrow:
+                        MovePlayer("up", () => Player.PositionY > 1);
+                        break;
+                    case ConsoleKey.DownArrow:
+                        MovePlayer("down", () => Player.PositionY < Height - 2);
+                        break;
+                    case ConsoleKey.F1:
+                    case ConsoleKey.F2:
+                        if (AddShieldToField(playerDirection.Key == ConsoleKey.F1 ? "left" : "right"))
                         {
-                            PlayerColoredPrint();
-                            if (Player.PositionY > 1)
-                            {
-                                Player.Move("up");
-                            }
-                            DrawPlayer();
-                        }
-                            break;
-                        case "DownArrow":
-                        lock (lockObject)
-                        {
-                            PlayerColoredPrint();
-                            if (Player.PositionY < Height - 2)
-                            {
-                                Player.Move("down");
-                            }
-                            DrawPlayer();
-                        }
-                            break;
-                        case "F1":
-                            if (AddShiledToField("left"))
-                            {
                             lock (lockObject)
                             {
                                 Console.SetCursorPosition(Player.PositionX, Player.PositionY);
-                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", "darkred");
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
                             }
                         }
-                            break;
-                        case "F2":
-                            if (AddShiledToField("right"))
-                            {
-                            lock (lockObject)
-                            {
-                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
-                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", "darkred");
-                            }
-                        }
-                            break;
-                        case "F3":
-                            DeleteShieldFromField();
+                        break;
+                    case ConsoleKey.F3:
+                        DeleteShieldFromField();
                         lock (lockObject)
                         {
                             Console.SetCursorPosition(Player.PositionX, Player.PositionY);
                             Console.Write(Player.Skin);
                         }
                         break;
-                    case "Escape":
+                    case ConsoleKey.Escape:
                         lock (lockObject)
                         {
                             Console.SetCursorPosition(0, Height);
-                            CenteredColoredWrite(Width, "Game W I L L  B E  C L O S E D, press Enter to confirm", "wrap", "darkred");
-                            IsClosed = true;
+                            CenteredColoredWrite(Width, "Game W I L L  B E  C L O S E D, press Enter to confirm", "wrap", ConsoleColor.DarkRed);
+                            Status = GameStatus.Closed;
                         }
                         break;
-                    case "Enter":
-                        if (IsClosed)
+                    case ConsoleKey.Enter:
+                        if (Status == GameStatus.Closed)
                         {
-                            IsOver = true;
+                            Status = GameStatus.Over;
                         }
                         break;
                 }
@@ -851,61 +326,200 @@ namespace GAME
                 Console.Write(GameField[Player.PositionY, Player.PositionX].Skin);
             }
         }
-    }
+        private (int, int) FindNearBullet(int playerX, int playerY, List<(int, int)> points)
+        {
+            var nearest = points.OrderBy(p => Math.Abs(p.Item1 - playerY) + Math.Abs(p.Item2 - playerX)).FirstOrDefault();
+            return nearest;
+        }
+        private void MovePlayerTo(int y, int x)
+        {
+            while (Player.PositionY != y || Player.PositionX != x)
+            {
+                DeletePlayerFromField();
+                if (Player.PositionY < y)
+                {
+                    Player.PositionY++;
+                }
+                else if (Player.PositionY > y)
+                {
+                    Player.PositionY--;
+                }
 
+                if (Player.PositionX < x)
+                {
+                    Player.PositionX++;
+                }
+                else if (Player.PositionX > x)
+                {
+                    Player.PositionX--;
+                }
+                UpdatePlayerOnField();
+                Thread.Sleep(50);
+            }
+        }
+        public void Emulate()
+        {
+            while (EnegryBulletsAmount > 0 && Status == GameStatus.InProgress)
+            {
+                if (EnegryBulletsAmount == 0)
+                {
+                    Console.Clear();
+                    Status = GameStatus.Winner;
+                    break;
+                }
+                (int nearY, int nearX) = FindNearBullet(Player.PositionX, Player.PositionY, Points);
+                if (Ball.Direction == MoveDirection.Top || Ball.Direction == MoveDirection.Bottom)
+                {
+                    MovePlayerTo(nearY, Ball.PositionX);
+                    if (Ball.PositionX < nearX)
+                    {
+                        if (Ball.PositionY > Player.PositionY)
+                        {
+                            AddShieldToField("right");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+
+                        }
+                        else
+                        {
+                            AddShieldToField("left");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (Ball.PositionY > Player.PositionY)
+                        {
+                            AddShieldToField("right");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+                        }
+                        else
+                        {
+                            AddShieldToField("left");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+                        }
+                    }
+                }
+                else if (Ball.Direction == MoveDirection.Left || Ball.Direction == MoveDirection.Right)
+                {
+                    MovePlayerTo(Ball.PositionY, nearX);
+                    if (Ball.PositionY < nearY)
+                    {
+                        if (Ball.PositionX < Player.PositionX)
+                        {
+                            AddShieldToField("left");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+                        }
+                        else
+                        {
+                            AddShieldToField("right");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        if (Ball.PositionX < Player.PositionX)
+                        {
+                            AddShieldToField("right");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+
+                        }
+                        else
+                        {
+                            AddShieldToField("right");
+                            lock (lockObject)
+                            {
+                                Console.SetCursorPosition(Player.PositionX, Player.PositionY);
+                                ColoredWrite(GameField[Player.PositionY, Player.PositionX].Skin.ToString(), "inline", GameField[Player.PositionY, Player.PositionX].Color, GameField[Player.PositionY, Player.PositionX].BgColor);
+                            }
+                        }
+                    }
+                }
+                int timeout = 1000;
+                Stopwatch sw = Stopwatch.StartNew();
+                while (sw.ElapsedMilliseconds < timeout)
+                {
+                    Thread.Sleep(100);
+                    lock (lockObject)
+                    {
+                        if ((Ball.PositionX != nearX || Ball.PositionY != nearY) && !Points.Contains((Ball.PositionY, Ball.PositionX)))
+                        {
+                            break;
+                        }
+                    }
+                }
+                DeleteShieldFromField();
+            }
+            return;
+        }
+
+    }
     internal class Game
     {
+        private Dictionary<string, BaseLevel> levels = new Dictionary<string, BaseLevel>
+        {
+            { "EASY", new EasyLevel() },
+            { "NORMAL", new NormalLevel() },
+            { "HARD", new HardLevel() },
+            { "EMULATE", new EmulateLevel() }
+        };
         public (string, Dictionary<string, int>?) StartGame(string level)
         {
             Stopwatch stopwatch = new Stopwatch();
             stopwatch.Start();
-            int Width, Height;
-            if (level == "EASY")
+            if (!levels.TryGetValue(level, out BaseLevel? gameLevel))
             {
-                Width = 80;
-                Height = 20;
-            } 
-            else if (level == "NORMAL") {
-                Width = 100;
-                Height = 25;
+                throw new ArgumentException("Invalid game level", nameof(level));
             }
-            else
-            {
-                Width = 120;
-                Height = 30;
-            }
-            Field field = new Field(Height, Width);
+            Field field = new Field(gameLevel.Height, gameLevel.Width);
             field.CreateField(level);
-            field.AddEnergyBullets();
-            if (level != "EASY")
-            {
-                field.AddSpikes();
-            }
-            if (level == "HARD")
-            {
-                field.AddBoosters();
-                field.addTeleports();
-            }
+            gameLevel.SetupField(field);
             field.DrawField();
-            Thread BallThread = new Thread(field.StartMovementOfBall);
+            Thread BallThread = new Thread(field.StartBallMovement);
             BallThread.Start();
-            field.PlayerController();
-            field.StartMovementOfBall();
+            gameLevel.Run(field);
             Thread.Sleep(1000);
             Console.Clear();
             stopwatch.Stop();
             TimeSpan elapsed = stopwatch.Elapsed;
             Dictionary<string, int> time = new Dictionary<string, int>
             {
-                {"minutes", elapsed.Minutes},
-                {"seconds", elapsed.Seconds},
-                {"milliseconds", elapsed.Milliseconds}
+                { "minutes", elapsed.Minutes },
+                { "seconds", elapsed.Seconds },
+                { "milliseconds", elapsed.Milliseconds }
             };
-            if (field.IsOver == true && field.IsWinner == false)
+            if (field.Status != GameStatus.Winner)
             {
                 return ("DEFEAT", null);
-            } 
-            else if (field.IsOver == true && field.IsWinner == true)
+            }
+            else if (field.Status == GameStatus.Winner)
             {
                 return ("WIN", time);
             }
@@ -915,4 +529,5 @@ namespace GAME
             }
         }
     }
+
 }
