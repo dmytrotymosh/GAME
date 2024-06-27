@@ -258,7 +258,7 @@ namespace GAME
                     break;
                 }
                 ConsoleKeyInfo playerDirection = Console.ReadKey(intercept: true);
-                void MovePlayer(string direction, Func<bool> canMove)
+                void MovePlayer(MoveDirection direction, Func<bool> canMove)
                 {
                     lock (lockObject)
                     {
@@ -273,16 +273,16 @@ namespace GAME
                 switch (playerDirection.Key)
                 {
                     case ConsoleKey.RightArrow:
-                        MovePlayer("right", () => Player.PositionX < Width - 2);
+                        MovePlayer(MoveDirection.Right, () => Player.PositionX < Width - 2);
                         break;
                     case ConsoleKey.LeftArrow:
-                        MovePlayer("left", () => Player.PositionX > 1);
+                        MovePlayer(MoveDirection.Left, () => Player.PositionX > 1);
                         break;
                     case ConsoleKey.UpArrow:
-                        MovePlayer("up", () => Player.PositionY > 1);
+                        MovePlayer(MoveDirection.Top, () => Player.PositionY > 1);
                         break;
                     case ConsoleKey.DownArrow:
-                        MovePlayer("down", () => Player.PositionY < Height - 2);
+                        MovePlayer(MoveDirection.Bottom, () => Player.PositionY < Height - 2);
                         break;
                     case ConsoleKey.F1:
                     case ConsoleKey.F2:
@@ -338,20 +338,20 @@ namespace GAME
                 DeletePlayerFromField();
                 if (Player.PositionY < y)
                 {
-                    Player.PositionY++;
+                    Player.Move(MoveDirection.Bottom);
                 }
                 else if (Player.PositionY > y)
                 {
-                    Player.PositionY--;
+                    Player.Move(MoveDirection.Top);
                 }
 
                 if (Player.PositionX < x)
                 {
-                    Player.PositionX++;
+                    Player.Move(MoveDirection.Right);
                 }
                 else if (Player.PositionX > x)
                 {
-                    Player.PositionX--;
+                    Player.Move(MoveDirection.Left);
                 }
                 UpdatePlayerOnField();
                 Thread.Sleep(50);
